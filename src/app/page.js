@@ -1,65 +1,247 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+
+function toCSV(rows) {
+  const cols = [
+    "listing_id",
+    "title",
+    "variant",
+    "sku",
+    "price",
+    "currency",
+    "quantity",
+    "available",
+    "source",
+    "url",
+  ];
+  const esc = (v) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(",")];
+  for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
+  return lines.join("\n");
+}
+
+function download(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function Home() {
+  const [shop, setShop] = useState("CustomCooper");
+  const [limit, setLimit] = useState(20);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [connected, setConnected] = useState(false);
+  const [shopName, setShopName] = useState(null);
+  const [authError, setAuthError] = useState("");
+
+  function refreshStatus() {
+    fetch("/api/auth/etsy/status")
+      .then((r) => r.json())
+      .then((j) => {
+        setConnected(Boolean(j.connected));
+        setShopName(j.shopName || null);
+      })
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    refreshStatus();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("auth_error")) {
+      setAuthError(decodeURIComponent(params.get("auth_error")));
+    }
+    if (params.get("connected")) {
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
+
+  async function disconnect() {
+    await fetch("/api/auth/etsy/logout", { method: "POST" });
+    setConnected(false);
+    setShopName(null);
+  }
+
+  async function fetchData(e) {
+    e?.preventDefault();
+    setLoading(true);
+    setError("");
+    setData(null);
+    try {
+      const res = await fetch(
+        `/api/products?shop=${encodeURIComponent(shop)}&limit=${limit}`
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Request failed");
+      setData(json);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const rows = data?.rows || [];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="max-w-6xl mx-auto p-6 font-sans w-full">
+      <h1 className="text-2xl font-bold mb-1">Etsy Shop Scraper</h1>
+      <p className="text-sm opacity-70 mb-4">
+        Variant prices &amp; inventory — Etsy Open API v3
+      </p>
+
+      <div className="flex items-center gap-3 mb-6 text-sm">
+        {connected ? (
+          <>
+            <span className="inline-flex items-center gap-2 text-green-600">
+              ● Connected{shopName ? `: ${shopName}` : " (OAuth)"}
+            </span>
+            <button
+              onClick={disconnect}
+              className="border rounded px-3 py-1 text-xs"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <a
+            href="/api/auth/etsy/login"
+            className="bg-[#f56400] text-white rounded px-4 py-2 font-medium"
+          >
+            Connect Etsy
+          </a>
+        )}
+      </div>
+
+      {authError && (
+        <div className="border border-red-400 text-red-600 rounded p-3 mb-4 text-sm whitespace-pre-wrap">
+          OAuth error: {authError}
+        </div>
+      )}
+
+      <form onSubmit={fetchData} className="flex flex-wrap gap-3 items-end mb-6">
+        <label className="flex flex-col text-sm">
+          Shop name
+          <input
+            value={shop}
+            onChange={(e) => setShop(e.target.value)}
+            className="border rounded px-3 py-2 mt-1 bg-transparent"
+            placeholder="CustomCooper"
+          />
+        </label>
+        <label className="flex flex-col text-sm">
+          Limit
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="border rounded px-3 py-2 mt-1 w-24 bg-transparent"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={loading}
+          className="bg-black text-white dark:bg-white dark:text-black rounded px-5 py-2 font-medium disabled:opacity-50"
+        >
+          {loading ? "Fetching…" : "Fetch products"}
+        </button>
+      </form>
+
+      {error && (
+        <div className="border border-red-400 text-red-600 rounded p-3 mb-4 text-sm whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
+
+      {data && (
+        <>
+          <div className="flex flex-wrap gap-3 items-center mb-3 text-sm">
+            <span>
+              <b>{data.shop}</b> — {data.listingCount} listings, {data.rowCount}{" "}
+              rows
+            </span>
+            <button
+              onClick={() =>
+                download("etsy-products.csv", toCSV(rows), "text/csv")
+              }
+              className="border rounded px-3 py-1"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+              Export CSV
+            </button>
+            <button
+              onClick={() =>
+                download(
+                  "etsy-products.json",
+                  JSON.stringify(rows, null, 2),
+                  "application/json"
+                )
+              }
+              className="border rounded px-3 py-1"
+            >
+              Export JSON
+            </button>
+          </div>
+
+          {data.warnings?.length > 0 && (
+            <div className="border border-amber-400 text-amber-700 rounded p-3 mb-4 text-xs">
+              {data.warnings.map((w, i) => (
+                <div key={i}>⚠ {w}</div>
+              ))}
+            </div>
+          )}
+
+          <div className="overflow-x-auto border rounded">
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-black/5 dark:bg-white/10">
+                <tr>
+                  {["Title", "Variant", "SKU", "Price", "Qty", "Avail", "Src"].map(
+                    (h) => (
+                      <th key={h} className="text-left p-2 font-medium">
+                        {h}
+                      </th>
+                    )
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-black/10">
+                    <td className="p-2 max-w-xs truncate">
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        {r.title}
+                      </a>
+                    </td>
+                    <td className="p-2">{r.variant}</td>
+                    <td className="p-2">{r.sku}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      {r.price != null ? `${r.price} ${r.currency || ""}` : "—"}
+                    </td>
+                    <td className="p-2">{r.quantity ?? "—"}</td>
+                    <td className="p-2">{r.available}</td>
+                    <td className="p-2 opacity-60">{r.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </main>
   );
 }
