@@ -17,10 +17,19 @@ function expiryFrom(token) {
 export async function saveAccountFromToken(token) {
   await ensureSchema();
 
-  const me = await getMe(token.access_token); // { user_id, shop_id }
-  const etsyUserId = String(me.user_id ?? token.access_token.split(".")[0]);
+  // Etsy v3 access tokens look like "<userId>.<random>" — userId is the prefix,
+  // so we can always identify the account even if /users/me is unavailable.
+  const tokenUserId = String(token.access_token).split(".")[0];
 
-  let shopId = me.shop_id ?? null;
+  let me = null;
+  try {
+    me = await getMe(token.access_token); // { user_id, shop_id }
+  } catch {
+    // missing scope / API hiccup -> degrade gracefully using token prefix
+  }
+  const etsyUserId = String(me?.user_id ?? tokenUserId);
+
+  let shopId = me?.shop_id ?? null;
   let shopName = null;
   if (shopId) {
     try {

@@ -5,7 +5,8 @@ import { getKeystring } from "./etsy";
 export const AUTHORIZE_URL = "https://www.etsy.com/oauth/connect";
 export const TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token";
 // listings_r -> active listings + inventory read access
-export const SCOPES = "listings_r";
+// shops_r   -> /users/me + shop details (needed to identify the account)
+export const SCOPES = "listings_r shops_r";
 
 export function redirectUri() {
   return (
